@@ -1,3 +1,23 @@
+Instrumented version of LULESH for use with soma-collector
+
+*** Running soma and instrumented LULESH - publishing 
+First build the soma-collector
+Outside the project directory: git clone https://github.com/dyokelson/LULESH.git
+cd LULESH
+module purge
+module load gcc/9.4.0 openmpi/4.1.2-cuda cuda cmake
+mkdir build
+cd build
+cmake -DCMAKE_BUILD_TYPE=Release -DMPI_CXX_COMPILER=`which mpicxx` -DCMAKE_PREFIX_PATH=/users/dewiy/soma-collector/share/cmake ..
+ccmake .
+make
+
+
+
+
+
+
+
 This is the README for LULESH 2.0
 
 More information including LULESH 1.0 can be found at https://codesign.llnl.gov/lulesh.php
