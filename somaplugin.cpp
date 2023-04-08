@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <mutex>
 
-#include "soma_plugin.hpp"
+#include "somaplugin.hpp"
 
 #ifdef USE_MPI
 #include<mpi.h>

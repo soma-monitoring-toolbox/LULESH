@@ -17,6 +17,8 @@
   }
 #endif
 
+extern MPI_Comm lulesh_comm;
+
 // Function prototypes
 static void 
 DumpDomainToVisit(DBfile *db, Domain& domain, int myRank);
@@ -66,7 +68,7 @@ void DumpToVisit(Domain& domain, int numFiles, int myRank, int numRanks)
 
   PMPIO_baton_t *bat = PMPIO_Init(numFiles,
 				  PMPIO_WRITE,
-				  MPI_COMM_WORLD,
+				  lulesh_comm,
 				  10101,
 				  LULESH_PMPIO_Create,
 				  LULESH_PMPIO_Open,

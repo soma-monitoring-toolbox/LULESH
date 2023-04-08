@@ -1,14 +1,15 @@
 Instrumented version of LULESH for use with soma-collector
 
-*** Running soma and instrumented LULESH - publishing 
+*** Running soma and instrumented LULESH  
 First build the soma-collector
 Outside the project directory: git clone https://github.com/dyokelson/LULESH.git
 cd LULESH
 module purge
 module load gcc/9.4.0 openmpi/4.1.2-cuda cuda cmake
+Export SOMA_INSTALL_DIR=<path_to_soma>/soma-collector/install
 mkdir build
 cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DMPI_CXX_COMPILER=`which mpicxx` -DCMAKE_PREFIX_PATH=/users/dewiy/soma-collector/share/cmake ..
+cmake -DCMAKE_BUILD_TYPE=Release -DMPI_CXX_COMPILER=`which mpicxx` -DCMAKE_PREFIX_PATH=$SOMA_INSTALL_DIR ..
 ccmake .
 make
 

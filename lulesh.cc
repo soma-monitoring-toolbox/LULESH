@@ -155,25 +155,96 @@ Additional BSD Notice
 #include <iostream>
 #include <unistd.h>
 
-#if _SOMAPLUGIN
-//TODO: move plugin inside soma?
-#include "soma_plugin.hpp"
-//#include <margo.h>
-//#include <soma/Client.hpp>
-//#include <conduit/conduit.hpp>
-#endif
-
 #if _OPENMP
 # include <omp.h>
 #endif
 
+#include <thallium.hpp>
+#include <soma/Client.hpp>
+#include <conduit/conduit.hpp>
+
 #include "lulesh.h"
 
-/* Work Routines */
+static constexpr int lulesh_comm_split_color = 42;
+ MPI_Comm lulesh_comm = MPI_COMM_WORLD;
 
-//extern "C" int __attribute__((weak)) Tau_dump();
+/* Globals -- Yikes, I know. */
+static bool enabled{false};
+static bool initialized{false};
+static bool opened{false};
+static bool done{false};
+static int my_rank = 0;
+static int size = 0;
+static std::string g_address_file;
+static std::string g_address;
+static std::string g_protocol = "ofi+verbs";
+static std::string g_collector;
+static unsigned    g_provider_id;
+static std::string g_log_level = "info";
+int reduction_frequency = 1;
+static thallium::engine *engine;
+static soma::Client *client;
+static soma::CollectorHandle soma_collector;
+int server_instance_id = 0;
 
-//extern "C" soma::CollectorHandle soma_plugin_init_mochi(int myRank);
+/* Helper function to read and parse input args */
+static std::string read_nth_line(const std::string& filename, int n)
+{
+   std::ifstream in(filename.c_str());
+
+   std::string s;
+   //for performance
+   s.reserve(200);
+
+   //skip N lines
+   for(int i = 0; i < n; ++i)
+       std::getline(in, s);
+
+   std::getline(in,s);
+   return s;
+}
+
+void parse_command_line(int myRank) {
+    char *addr_file_name = getenv("SOMA_SERVER_ADDR_FILE");
+    char *node_file_name = getenv("SOMA_NODE_ADDR_FILE");
+    int num_server = 1;
+    num_server = std::stoi(std::string(getenv("SOMA_NUM_SERVERS_PER_INSTANCE")));
+    server_instance_id = std::stoi(std::string(getenv("SOMA_SERVER_INSTANCE_ID")));
+    int my_server_offset = myRank % num_server;
+    g_address_file = addr_file_name;
+    std::string l = read_nth_line(g_address_file, server_instance_id*num_server + my_server_offset + 1);
+    std::string delimiter = " ";
+    size_t pos = 0;
+    pos = l.find(delimiter);
+    std::string server_rank_str = l.substr(0, pos);
+    std::stringstream s_(server_rank_str);
+    int server_rank;
+    s_ >> server_rank;
+    l.erase(0, pos + delimiter.length());
+    g_address = l;
+    g_provider_id = 0;
+    g_collector = read_nth_line(std::string(node_file_name), server_instance_id*num_server + my_server_offset);
+    //g_protocol = g_address.substr(0, g_address.find(":"));
+    g_protocol = "ofi+verbs";
+}
+
+void soma_plugin_init_mochi(int myRank) {
+
+    /* Grab my server instance address and other deets */
+    parse_command_line(myRank);
+
+    // Initialize the thallium server
+    engine = new thallium::engine(g_protocol, THALLIUM_CLIENT_MODE);
+
+    // Initialize a Client
+    client = new soma::Client(*engine);
+
+    // Create a handle from provider 0
+    soma_collector = (*client).makeCollectorHandle(g_address, g_provider_id,
+                    soma::UUID::from_string(g_collector.c_str()));
+    
+    initialized = true;
+}
 
 static inline
 void TimeIncrement(Domain& domain)
@@ -197,7 +268,7 @@ void TimeIncrement(Domain& domain)
 #if USE_MPI      
       MPI_Allreduce(&gnewdt, &newdt, 1,
                     ((sizeof(Real_t) == 4) ? MPI_FLOAT : MPI_DOUBLE),
-                    MPI_MIN, MPI_COMM_WORLD) ;
+                    MPI_MIN, lulesh_comm) ;
 #else
       newdt = gnewdt;
 #endif
@@ -1045,7 +1116,7 @@ void CalcHourglassControlForElems(Domain& domain,
       /* Do a check for negative volumes */
       if ( domain.v(i) <= Real_t(0.0) ) {
 #if USE_MPI         
-         MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+         MPI_Abort(lulesh_comm, VolumeError) ;
 #else
          exit(VolumeError);
 #endif
@@ -1095,7 +1166,7 @@ void CalcVolumeForceForElems(Domain& domain)
       for ( Index_t k=0 ; k<numElem ; ++k ) {
          if (determ[k] <= Real_t(0.0)) {
 #if USE_MPI            
-            MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+            MPI_Abort(lulesh_comm, VolumeError) ;
 #else
             exit(VolumeError);
 #endif
@@ -1610,7 +1681,7 @@ void CalcLagrangeElements(Domain& domain)
          if (domain.vnew(k) <= Real_t(0.0))
         {
 #if USE_MPI           
-           MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+           MPI_Abort(lulesh_comm, VolumeError) ;
 #else
            exit(VolumeError);
 #endif
@@ -2013,7 +2084,7 @@ void CalcQForElems(Domain& domain)
 
       if(idx >= 0) {
 #if USE_MPI         
-         MPI_Abort(MPI_COMM_WORLD, QStopError) ;
+         MPI_Abort(lulesh_comm, QStopError) ;
 #else
          exit(QStopError);
 #endif
@@ -2388,7 +2459,7 @@ void ApplyMaterialPropertiesForElems(Domain& domain)
           }
           if (vc <= 0.) {
 #if USE_MPI
-             MPI_Abort(MPI_COMM_WORLD, VolumeError) ;
+             MPI_Abort(lulesh_comm, VolumeError) ;
 #else
              exit(VolumeError);
 #endif
@@ -2680,11 +2751,24 @@ int main(int argc, char *argv[])
         exit(1);
     }
 #else
-   MPI_Init(&argc, &argv);
+   //MPI_Init(&argc, &argv);
+   int thread_level = MPI_THREAD_MULTIPLE;
+   int thread_support_level =-1;
+   int result = MPI_Init_thread(NULL, NULL, thread_level, &thread_support_level);
+   if (thread_support_level < thread_level || result != MPI_SUCCESS) {
+        fprintf(stderr, "Unable to initialize threaded MPI");
+        return 1;
+   }
+
 #endif
-    
-   MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
-   MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
+   int world_rank;
+   //MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
+   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank) ;
+   MPI_Comm_split(MPI_COMM_WORLD, lulesh_comm_split_color, world_rank, &lulesh_comm);
+
+   MPI_Comm_size(lulesh_comm, &numRanks);
+   MPI_Comm_rank(lulesh_comm, &myRank);
+
 #else
    numRanks = 1;
    myRank = 0;
@@ -2694,7 +2778,7 @@ int main(int argc, char *argv[])
    // Initialize soma client per rank, get handle
    //MPI_Barrier(MPI_COMM_WORLD);
  
-   soma::CollectorHandle soma_client = soma_plugin_init_mochi(myRank);
+   soma_plugin_init_mochi(myRank);
                     
 #endif
 
@@ -2749,7 +2833,7 @@ int main(int argc, char *argv[])
    CommSBN(*locDom, 1, &fieldData) ;
 
    // End initialization
-   MPI_Barrier(MPI_COMM_WORLD);
+   MPI_Barrier(lulesh_comm);
 #endif   
    
    // BEGIN timestep to solution */
@@ -2759,9 +2843,11 @@ int main(int argc, char *argv[])
    timeval start;
    gettimeofday(&start, NULL) ;
 #endif
+   int iter = 0;
 //debug to see region sizes
 //   for(Int_t i = 0; i < locDom->numReg(); i++)
 //      std::cout << "region" << i + 1<< "size" << locDom->regElemSize(i) <<std::endl;
+
    while((locDom->time() < locDom->stoptime()) && (locDom->cycle() < opts.its)) {
 
       TimeIncrement(*locDom) ;
@@ -2774,13 +2860,17 @@ int main(int argc, char *argv[])
                    << "dt="     << double(locDom->deltatime()) << "\n";
          std::cout.unsetf(std::ios_base::floatfield);
       }
+      iter ++;
 #if _SOMAPLUGIN
 //    Conduit node can contain anything and you can send it to the collector here
       conduit::Node node;
-      node["test"] = "test_value";
-      node["test/rank"] = myRank;
-      std::cout << "publishing conduit node" << "\n";
-      soma_client.soma_publish(node);
+      if((iter % 50) == 0) {
+          node["test"] = "test_value";
+          node["test/rank"] = myRank;
+          node["test/values"] = {0,1,12,3,4,4};
+          std::cout << "publishing conduit node" << std::endl;
+          soma_collector.soma_publish(node);
+      }
 #endif   
    }
 
@@ -2796,9 +2886,20 @@ int main(int argc, char *argv[])
    double elapsed_timeG;
 #if USE_MPI   
    MPI_Reduce(&elapsed_time, &elapsed_timeG, 1, MPI_DOUBLE,
-              MPI_MAX, 0, MPI_COMM_WORLD);
+              MPI_MAX, 0, lulesh_comm);
 #else
    elapsed_timeG = elapsed_time;
+#endif
+
+#if _SOMAPLUGIN       
+   // An example of how you can write the queued conduit data out to file	  
+          if (myRank == 0) {
+              std::cout << "writing to file" << std::endl;
+              std::string outfile = "lulesh_data_soma.txt";	  
+              bool write_done;
+              soma_collector.soma_write(outfile, &write_done);
+              //std::cout << "Result: " << write_done << std::endl;	
+	      }
 #endif
 
    // Write out final viz file */
@@ -2813,6 +2914,11 @@ int main(int argc, char *argv[])
    delete locDom; 
 
 #if USE_MPI
+   if (lulesh_comm != MPI_COMM_WORLD) {
+      MPI_Comm_free(&lulesh_comm);
+      lulesh_comm = MPI_COMM_NULL;
+   }
+   
    MPI_Finalize() ;
 #endif
 

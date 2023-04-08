@@ -9,6 +9,8 @@
 #endif
 #include "lulesh.h"
 
+extern MPI_Comm lulesh_comm;
+
 /* Helper function for converting strings to ints, with error checking */
 template<typename IntT>
 int StrToInt(const char *token, IntT *retVal)
@@ -53,7 +55,7 @@ static void ParseError(const char *message, int myRank)
    if (myRank == 0) {
       printf("%s\n", message);
 #if USE_MPI      
-      MPI_Abort(MPI_COMM_WORLD, -1);
+      MPI_Abort(lulesh_comm, -1);
 #else
       exit(-1);
 #endif
@@ -155,7 +157,7 @@ void ParseCommandLineOptions(int argc, char *argv[],
          else if (strcmp(argv[i], "-h") == 0) {
             PrintCommandLineOptions(argv[0], myRank);
 #if USE_MPI            
-            MPI_Abort(MPI_COMM_WORLD, 0);
+            MPI_Abort(lulesh_comm, 0);
 #else
             exit(0);
 #endif
