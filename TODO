@@ -1,1 +1,1 @@
-cmake build (Abhinav)
+Move the client generating functionality into a separate file (somaplugin.cpp)
