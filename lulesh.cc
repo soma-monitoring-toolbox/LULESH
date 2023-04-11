@@ -238,10 +238,11 @@ void soma_plugin_init_mochi(int myRank) {
 
     // Initialize a Client
     client = new soma::Client(*engine);
-
     // Create a handle from provider 0
+    std::cout << "LULESH: Trying to create client handle" << std::endl;
     soma_collector = (*client).makeCollectorHandle(g_address, g_provider_id,
                     soma::UUID::from_string(g_collector.c_str()));
+    std::cout << "LULESH: Sucessfully created client handle" << std::endl;
     
     initialized = true;
 }
@@ -2776,10 +2777,9 @@ int main(int argc, char *argv[])
 
 #if _SOMAPLUGIN
    // Initialize soma client per rank, get handle
-   //MPI_Barrier(MPI_COMM_WORLD);
- 
+   // Let server finish before creating clients
+   MPI_Barrier(MPI_COMM_WORLD);
    soma_plugin_init_mochi(myRank);
-                    
 #endif
 
    /* Set defaults that can be overridden by command line opts */
