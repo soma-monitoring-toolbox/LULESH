@@ -166,7 +166,10 @@ Additional BSD Notice
 #include "lulesh.h"
 
 static constexpr int lulesh_comm_split_color = 42;
- MPI_Comm lulesh_comm = MPI_COMM_WORLD;
+MPI_Comm lulesh_comm = MPI_COMM_WORLD;
+MPI_Comm tau_comm = MPI_COMM_WORLD;
+
+extern "C" int __attribute__((weak)) Tau_dump();
 
 /* Globals -- Yikes, I know. */
 static bool enabled{false};
@@ -238,11 +241,10 @@ void soma_plugin_init_mochi(int myRank) {
 
     // Initialize a Client
     client = new soma::Client(*engine);
+
     // Create a handle from provider 0
-    std::cout << "LULESH: Trying to create client handle" << std::endl;
     soma_collector = (*client).makeCollectorHandle(g_address, g_provider_id,
                     soma::UUID::from_string(g_collector.c_str()));
-    std::cout << "LULESH: Sucessfully created client handle" << std::endl;
     
     initialized = true;
 }
@@ -2766,6 +2768,7 @@ int main(int argc, char *argv[])
    //MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank) ;
    MPI_Comm_split(MPI_COMM_WORLD, lulesh_comm_split_color, world_rank, &lulesh_comm);
+   MPI_Comm_dup(lulesh_comm, &tau_comm);
 
    MPI_Comm_size(lulesh_comm, &numRanks);
    MPI_Comm_rank(lulesh_comm, &myRank);
@@ -2777,9 +2780,10 @@ int main(int argc, char *argv[])
 
 #if _SOMAPLUGIN
    // Initialize soma client per rank, get handle
-   // Let server finish before creating clients
+ 
    MPI_Barrier(MPI_COMM_WORLD);
    soma_plugin_init_mochi(myRank);
+                    
 #endif
 
    /* Set defaults that can be overridden by command line opts */
@@ -2871,6 +2875,8 @@ int main(int argc, char *argv[])
           std::cout << "publishing conduit node" << std::endl;
           soma_collector.soma_publish(node);
       }
+      Tau_dump();
+
 #endif   
    }
 
