@@ -2868,11 +2868,11 @@ int main(int argc, char *argv[])
 #if _SOMAPLUGIN
 //    Conduit node can contain anything and you can send it to the collector here
       conduit::Node node;
-      if((iter % 50) == 0) {
+      int freq = std::stoi(getenv("APP_SOMA_MONITORING_FREQUENCY"));
+      if((iter % freq) == 0) {
           node["test"] = "test_value";
           node["test/rank"] = myRank;
-          node["test/values"] = {0,1,12,3,4,4};
-          std::cout << "publishing conduit node" << std::endl;
+          node["test/values"] = {0,1,12,3,4,4,8,23,25,7,8,32,12,135246};
           soma_collector.soma_publish(node);
       }
       Tau_dump();
