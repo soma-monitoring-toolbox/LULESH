@@ -159,18 +159,21 @@ Additional BSD Notice
 # include <omp.h>
 #endif
 
+#if _SOMAPLUGIN
 #include <thallium.hpp>
 #include <soma/Client.hpp>
 #include <conduit/conduit.hpp>
+#endif
 
 #include "lulesh.h"
 
 static constexpr int lulesh_comm_split_color = 42;
 MPI_Comm lulesh_comm = MPI_COMM_WORLD;
-MPI_Comm tau_comm = MPI_COMM_WORLD;
 
+MPI_Comm tau_comm = MPI_COMM_WORLD;
 extern "C" int __attribute__((weak)) Tau_dump();
 
+#if _SOMAPLUGIN
 /* Globals -- Yikes, I know. */
 static bool enabled{false};
 static bool initialized{false};
@@ -189,6 +192,7 @@ static thallium::engine *engine;
 static soma::Client *client;
 static soma::CollectorHandle soma_collector;
 int server_instance_id = 0;
+static std::vector<thallium::async_response> requests;
 
 /* Helper function to read and parse input args */
 static std::string read_nth_line(const std::string& filename, int n)
@@ -245,9 +249,10 @@ void soma_plugin_init_mochi(int myRank) {
     // Create a handle from provider 0
     soma_collector = (*client).makeCollectorHandle(g_address, g_provider_id,
                     soma::UUID::from_string(g_collector.c_str()));
-    
     initialized = true;
 }
+
+#endif
 
 static inline
 void TimeIncrement(Domain& domain)
@@ -2768,7 +2773,9 @@ int main(int argc, char *argv[])
    //MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank) ;
    MPI_Comm_split(MPI_COMM_WORLD, lulesh_comm_split_color, world_rank, &lulesh_comm);
+#if _SOMAPLUGIN 
    MPI_Comm_dup(lulesh_comm, &tau_comm);
+#endif
 
    MPI_Comm_size(lulesh_comm, &numRanks);
    MPI_Comm_rank(lulesh_comm, &myRank);
@@ -2798,7 +2805,7 @@ int main(int argc, char *argv[])
    opts.cost = 1;
 
    ParseCommandLineOptions(argc, argv, myRank, &opts);
-
+   
    if ((myRank == 0) && (opts.quiet == 0)) {
       std::cout << "Running problem size " << opts.nx << "^3 per domain until completion\n";
       std::cout << "Num processors: "      << numRanks << "\n";
@@ -2822,7 +2829,6 @@ int main(int argc, char *argv[])
    // Build the main data structure and initialize it
    locDom = new Domain(numRanks, col, row, plane, opts.nx,
                        side, opts.numReg, opts.balance, opts.cost) ;
-
 
 #if USE_MPI   
    fieldData = &Domain::nodalMass ;
@@ -2868,12 +2874,14 @@ int main(int argc, char *argv[])
 #if _SOMAPLUGIN
 //    Conduit node can contain anything and you can send it to the collector here
       conduit::Node node;
+      // this needs to be set - add in a check later
       int freq = std::stoi(getenv("APP_SOMA_MONITORING_FREQUENCY"));
       if((iter % freq) == 0) {
           node["test"] = "test_value";
           node["test/rank"] = myRank;
           node["test/values"] = {0,1,12,3,4,4,8,23,25,7,8,32,12,135246};
-          soma_collector.soma_publish(node);
+          auto response = soma_collector.soma_publish_async(node);
+	  requests.push_back(std::move(response));
       }
       Tau_dump();
 
@@ -2897,15 +2905,21 @@ int main(int argc, char *argv[])
    elapsed_timeG = elapsed_time;
 #endif
 
-#if _SOMAPLUGIN       
-   // An example of how you can write the queued conduit data out to file	  
-          if (myRank == 0) {
-              std::cout << "writing to file" << std::endl;
-              std::string outfile = "lulesh_data_soma.txt";	  
-              bool write_done;
-              soma_collector.soma_write(outfile, &write_done);
-              //std::cout << "Result: " << write_done << std::endl;	
-	      }
+#if _SOMAPLUGIN 
+   //make sure all asynchronous requests have completed 
+    double soma_start = MPI_Wtime();	  
+    for(auto i = requests.begin(); i != requests.end(); i++) {
+        i->wait();
+    }   
+    double soma_req_time = MPI_Wtime() - soma_start;
+   // An example of how you can write the queued conduit data out to file
+    if (myRank == 0) {
+        std::string outfile = "lulesh_data_soma.txt";	  
+        bool write_done;
+        soma_collector.soma_write(outfile, &write_done);
+    }
+    double soma_write_time = MPI_Wtime() - soma_start;
+    elapsed_timeG += soma_req_time;
 #endif
 
    // Write out final viz file */

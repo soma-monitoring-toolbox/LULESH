@@ -1,6 +1,7 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.17)
 
 project(LULESH CXX)
+set (CMAKE_CXX_STANDARD 17)
 
 option(WITH_MPI    "Build LULESH with MPI"          TRUE)
 option(WITH_OPENMP "Build LULESH with OpenMP"       FALSEE)
