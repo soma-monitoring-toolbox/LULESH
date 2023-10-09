@@ -2874,8 +2874,10 @@ int main(int argc, char *argv[])
 #if _SOMAPLUGIN
 //    Conduit node can contain anything and you can send it to the collector here
       conduit::Node node;
-      // this needs to be set - add in a check later
-      int freq = std::stoi(getenv("APP_SOMA_MONITORING_FREQUENCY"));
+      int freq = 1; //default
+      char * frequency_var = getenv("APP_SOMA_MONITORING_FREQUENCY");
+      if (frequency_var != NULL) {	      
+      	  freq = std::stoi(frequency_var);
       if((iter % freq) == 0) {
           node["test"] = "test_value";
           node["test/rank"] = myRank;
