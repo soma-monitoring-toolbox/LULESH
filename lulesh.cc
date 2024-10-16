@@ -2878,7 +2878,8 @@ int main(int argc, char *argv[])
       char * frequency_var = getenv("APP_SOMA_MONITORING_FREQUENCY");
       if (frequency_var != NULL) {	      
       	  freq = std::stoi(frequency_var);
-      if((iter % freq) == 0) {
+      }
+     if((iter % freq) == 0) {
           node["test"] = "test_value";
           node["test/rank"] = myRank;
           node["test/values"] = {0,1,12,3,4,4,8,23,25,7,8,32,12,135246};
@@ -2918,7 +2919,7 @@ int main(int argc, char *argv[])
     if (myRank == 0) {
         std::string outfile = "lulesh_data_soma.txt";	  
         bool write_done;
-        soma_collector.soma_write(outfile, &write_done);
+        soma_collector.soma_write(outfile, &write_done, soma::APPEND);
     }
     double soma_write_time = MPI_Wtime() - soma_start;
     elapsed_timeG += soma_req_time;
